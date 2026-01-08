@@ -183,6 +183,20 @@ class SocialLoginView(AdministratorPermissionRequiredMixin, TemplateView):
         login_providers = self.gs.settings.get('login_providers', as_type=dict)
         setting_state = request.POST.get('save_credentials', '').lower()
 
+        # Handle preferred provider selection
+        preferred_provider = request.POST.get('preferred_provider', '')
+
+        # Reset all preferred flags first
+        for provider in LoginProviders.model_fields.keys():
+            if provider in login_providers:
+                login_providers[provider]['preferred'] = False
+
+        # Set the selected provider as preferred (if it's enabled)
+        if preferred_provider and preferred_provider in login_providers:
+            if login_providers[preferred_provider].get('state', False):
+                login_providers[preferred_provider]['preferred'] = True
+
+
         for provider in LoginProviders.model_fields.keys():
             if setting_state == self.SettingState.CREDENTIALS:
                 self.update_credentials(request, provider, login_providers)
@@ -211,7 +225,13 @@ class SocialLoginView(AdministratorPermissionRequiredMixin, TemplateView):
     def update_provider_state(self, request, provider, login_providers):
         setting_state = request.POST.get(f'{provider}_login', '').lower()
         if setting_state in [s.value for s in self.SettingState]:
-            login_providers[provider]['state'] = setting_state == self.SettingState.ENABLED
+            new_state = setting_state == self.SettingState.ENABLED
+            login_providers[provider]['state'] = new_state
+
+            # If disabling a provider that was preferred, unset preferred
+            if not new_state and login_providers[provider].get('preferred', False):
+                login_providers[provider]['preferred'] = False
 
     def get_success_url(self) -> str:
         return reverse('plugins:socialauth:admin.global.social.auth.settings')
+

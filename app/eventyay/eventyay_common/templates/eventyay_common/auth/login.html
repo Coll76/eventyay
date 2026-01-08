@@ -4,66 +4,252 @@
 {% load static %}
 {% load urlreplace %}
 {% load append_next_url %}
+
 {% block content %}
-    <form class="form-signin" action="" method="post">
-        <div id="login-form" class="collapse">
-            {% if backends|length > 1 %}
-                <ul class="nav nav-pills">
-                    {% for b in backends %}
-                        {% if b.visible %}
-                            <li class="{% if backend.identifier == b.identifier %}active{% endif %}">
-                                <a href="{% if b.url %}{{ b.url }}{% else %}?{% url_replace request "backend" b.identifier %}{% endif %}">
-                                    {{ b.verbose_name }}
+
+<form class="form-signin" action="" method="post">
+    {% csrf_token %}
+
+{% if any_preferred %}
+    {# A provider is marked as preferred - show preferred layout #}
+    {% for provider, settings in login_providers.items %}
+        {% if settings.state and settings.preferred %}
+            {% if provider == "native" %}
+                
+                {# Case 1: Native (Email) is preferred #}
+                <div class="form-group buttons">
+                    <button type="button" class="btn btn-primary btn-block btn-lg collapsed"
+                            data-toggle="collapse" data-target="#login-form"
+                            aria-expanded="false" aria-controls="login-form">
+                        {% translate "Login with Email" %}
+                    </button>
+                </div>
+                
+                {# Show other social login options below if any exist #}
+                {% if login_providers|length > 1 %}
+                    <p class="text-center text-muted" style="margin: 20px 0 10px 0;">
+                        <small>{% translate "or use the following" %}</small>
+                    </p>
+                    <div class="form-group buttons">
+                        {% for other_provider, other_settings in login_providers.items %}
+                            {% if other_settings.state and other_provider != "native" %}
+                                <a href='{% url "plugins:socialauth:social.oauth.login" other_provider %}{% append_next request.GET.next %}' 
+                                   class="btn btn-default btn-block">
+                                    {% with other_provider|capfirst as provider_capitalized %}
+                                        {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
+                                    {% endwith %}
                                 </a>
-                            </li>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                
+                <div id="login-form" class="collapse" style="margin-top: 15px;">
+                    {% if backends|length > 1 %}
+                        <ul class="nav nav-pills">
+                            {% for b in backends %}
+                                {% if b.visible %}
+                                    <li class="{% if backend.identifier == b.identifier %}active{% endif %}">
+                                        <a href="{% if b.url %}{{ b.url }}{% else %}?{% url_replace request "backend" b.identifier %}{% endif %}">
+                                            {{ b.verbose_name }}
+                                        </a>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                        <br>
+                    {% endif %}
+                    {% bootstrap_form form %}
+                    <div class="form-group buttons">
+                        {% if backend.login_form_fields %}
+                            <button type="submit" class="btn btn-primary btn-block">
+                                {% translate "Log in" %}
+                            </button>
+                        {% endif %}
+                        {% if backend.url %}
+                            <a href="{{ backend.url }}" class="btn btn-primary btn-block">
+                                {{ backend.verbose_name }}
+                            </a>
+                        {% endif %}
+                        {% if backend.identifier == "native" %}
+                            {% if can_reset %}
+                                <a href="{% url "eventyay_common:auth.forgot" %}" class="btn btn-link btn-block">
+                                    {% translate "Lost password?" %}
+                                </a>
+                            {% endif %}
+                            {% if can_register %}
+                                <a href='{% url "eventyay_common:auth.register" %}{% append_next request.GET.next %}' class="btn btn-link btn-block">
+                                    {% translate "Register" %}
+                                </a>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                
+            {% else %}
+                
+                {# Case 2: A social provider is preferred #}
+                <div class="form-group buttons">
+                    <a href='{% url "plugins:socialauth:social.oauth.login" provider %}{% append_next request.GET.next %}' 
+                       class="btn btn-primary btn-block btn-lg">
+                        {% with provider|capfirst as provider_capitalized %}
+                            {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
+                        {% endwith %}
+                    </a>
+                </div>
+                
+                <p class="text-center text-muted" style="margin: 20px 0 10px 0;">
+                    <small>{% translate "or use the following" %}</small>
+                </p>
+                
+                <div class="form-group buttons">
+                    <button type="button" class="btn btn-default btn-block collapsed"
+                            data-toggle="collapse" data-target="#login-form"
+                            aria-expanded="false" aria-controls="login-form">
+                        {% translate "Login with Email" %}
+                    </button>
+                    
+                    {% for other_provider, other_settings in login_providers.items %}
+                        {% if other_settings.state and other_provider != "native" and other_provider != provider %}
+                            <a href='{% url "plugins:socialauth:social.oauth.login" other_provider %}{% append_next request.GET.next %}' 
+                               class="btn btn-default btn-block">
+                                {% with other_provider|capfirst as provider_capitalized %}
+                                    {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
+                                {% endwith %}
+                            </a>
                         {% endif %}
                     {% endfor %}
-                </ul>
-                <br>
+                </div>
+                
+                <div id="login-form" class="collapse" style="margin-top: 15px;">
+                    {% if backends|length > 1 %}
+                        <ul class="nav nav-pills">
+                            {% for b in backends %}
+                                {% if b.visible %}
+                                    <li class="{% if backend.identifier == b.identifier %}active{% endif %}">
+                                        <a href="{% if b.url %}{{ b.url }}{% else %}?{% url_replace request "backend" b.identifier %}{% endif %}">
+                                            {{ b.verbose_name }}
+                                        </a>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                        <br>
+                    {% endif %}
+                    {% bootstrap_form form %}
+                    <div class="form-group buttons">
+                        {% if backend.login_form_fields %}
+                            <button type="submit" class="btn btn-primary btn-block">
+                                {% translate "Log in" %}
+                            </button>
+                        {% endif %}
+                        {% if backend.url %}
+                            <a href="{{ backend.url }}" class="btn btn-primary btn-block">
+                                {{ backend.verbose_name }}
+                            </a>
+                        {% endif %}
+                        {% if backend.identifier == "native" %}
+                            {% if can_reset %}
+                                <a href="{% url "eventyay_common:auth.forgot" %}" class="btn btn-link btn-block">
+                                    {% translate "Lost password?" %}
+                                </a>
+                            {% endif %}
+                            {% if can_register %}
+                                <a href='{% url "eventyay_common:auth.register" %}{% append_next request.GET.next %}' class="btn btn-link btn-block">
+                                    {% translate "Register" %}
+                                </a>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                
             {% endif %}
-            {% csrf_token %}
-            {% bootstrap_form form %}
-            <div class="form-group buttons">
-                {% if backend.login_form_fields %}
+        {% endif %}
+    {% endfor %}
+    
+{% else %}
+    
+    {# Case 3: No preferred provider - all options shown equally #}
+    <div class="form-group buttons">
+        {% if login_providers.native.state %}
+            <button type="button" id="toggle-login" class="btn btn-primary btn-block collapsed"
+                    data-toggle="collapse" data-target="#login-form"
+                    aria-expanded="false" aria-controls="login-form">
+                {% translate "Login with Email" %}
+            </button>
+        {% endif %}
+        {% for other_provider, other_settings in login_providers.items %}
+            {% if other_settings.state and other_provider != "native" %}
+                <a href='{% url "plugins:socialauth:social.oauth.login" other_provider %}{% append_next request.GET.next %}' 
+                   class="btn btn-primary btn-block">
+                    {% with other_provider|capfirst as provider_capitalized %}
+                        {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
+                    {% endwith %}
+                </a>
+            {% endif %}
+        {% endfor %}
+    </div>
+    
+    <div id="login-form" class="collapse">
+        {% if backends|length > 1 %}
+            <ul class="nav nav-pills">
+                {% for b in backends %}
+                    {% if b.visible %}
+                        <li class="{% if backend.identifier == b.identifier %}active{% endif %}">
+                            <a href="{% if b.url %}{{ b.url }}{% else %}?{% url_replace request "backend" b.identifier %}{% endif %}">
+                                {{ b.verbose_name }}
+                            </a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+            <br>
+        {% endif %}
+        {% bootstrap_form form %}
+        <div class="form-group buttons">
+            {% if backend.login_form_fields %}
                 <button type="submit" class="btn btn-primary btn-block">
                     {% translate "Log in" %}
                 </button>
-                {% endif %}
-                {% if backend.url %}
-                    <a href="{{ backend.url }}" class="btn btn-primary btn-block">
-                        {{ backend.verbose_name }}
+            {% endif %}
+            {% if backend.url %}
+                <a href="{{ backend.url }}" class="btn btn-primary btn-block">
+                    {{ backend.verbose_name }}
+                </a>
+            {% endif %}
+            {% if backend.identifier == "native" %}
+                {% if can_reset %}
+                    <a href="{% url "eventyay_common:auth.forgot" %}" class="btn btn-link btn-block">
+                        {% translate "Lost password?" %}
                     </a>
                 {% endif %}
-                {% if backend.identifier == "native" %}
-                    {% if can_reset %}
-                        <a href="{% url "eventyay_common:auth.forgot" %}" class="btn btn-link btn-block">
-                            {% translate "Lost password?" %}
-                        </a>
-                    {% endif %}
-                    {% if can_register %}
-                        <a href='{% url "eventyay_common:auth.register" %}{% append_next request.GET.next %}' class="btn btn-link btn-block">
-                            {% translate "Register" %}
-                        </a>
-                    {% endif %}
+                {% if can_register %}
+                    <a href='{% url "eventyay_common:auth.register" %}{% append_next request.GET.next %}' class="btn btn-link btn-block">
+                        {% translate "Register" %}
+                    </a>
                 {% endif %}
-            </div>
-        </div>
-        <div class="form-group buttons">
-            <button type="button" id="toggle-login" class="btn btn-primary btn-block" data-toggle="collapse" data-target="#login-form">
-                {% translate "Login with Email" %}
-            </button>
-            {% if login_providers %}
-                {% for provider, settings in login_providers.items %}
-                    {% if settings.state %}
-                        <a href='{% url "plugins:socialauth:social.oauth.login" provider %}{% append_next request.GET.next %}' 
-                           data-method="post" class="btn btn-primary btn-block">
-                            {% with provider|capfirst as provider_capitalized %}
-                                {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
-                            {% endwith %}
-                        </a>
-                    {% endif %}
-                {% endfor %}
             {% endif %}
         </div>
-    </form>
+    </div>
+    
+{% endif %}
+
+
+</form>
+
+<script>
+// Ensure the login form is collapsed on page load
+document.addEventListener('DOMContentLoaded', function() {
+    var loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        // Remove any 'in' class that might be added by other scripts
+        loginForm.classList.remove('in');
+        // Ensure it's hidden
+        loginForm.style.height = '0px';
+        loginForm.style.overflow = 'hidden';
+        loginForm.setAttribute('aria-expanded', 'false');
+    }
+});
+</script>
+
 {% endblock %}

@@ -2,12 +2,14 @@ from pydantic import BaseModel, Field
 
 
 class ProviderConfig(BaseModel):
-    state: bool = Field(description='State of this providers', default=False)
+    state: bool = Field(description='State of this provider', default=False)
     client_id: str = Field(description='Client ID of this provider', default='')
     secret: str = Field(description='Secret of this provider', default='')
+    preferred: bool = Field(description='Whether this is the preferred login method', default=False)
 
 
 class LoginProviders(BaseModel):
+    native: ProviderConfig = Field(default_factory=ProviderConfig)
     mediawiki: ProviderConfig = Field(default_factory=ProviderConfig)
     github: ProviderConfig = Field(default_factory=ProviderConfig)
     google: ProviderConfig = Field(default_factory=ProviderConfig)

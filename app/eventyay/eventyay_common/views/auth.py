@@ -139,6 +139,20 @@ def login(request):
         if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts=None):
             return redirect(next_url)
         return redirect(reverse('eventyay_common:dashboard'))
+    
+    # Determine if we should pre-select "Keep me logged in"
+    gs = GlobalSettingsObject()
+    login_providers = gs.settings.get('login_providers', as_type=dict) or {}
+    
+    # Check if current backend is the preferred provider
+    keep_logged_in_default = False
+    for provider_key, provider_settings in login_providers.items():
+        if provider_settings.get('preferred', False):
+            # If native (email) is preferred and we're using native backend
+            if provider_key == 'native' and backend.identifier == 'native':
+                keep_logged_in_default = True
+                break
+    
     if request.method == 'POST':
         form = LoginForm(backend=backend, data=request.POST, request=request)
         if form.is_valid() and form.user_cache and form.user_cache.auth_backend == backend.identifier:
@@ -146,15 +160,25 @@ def login(request):
                 request, form.user_cache, form.cleaned_data.get('keep_logged_in', False)
             )
     else:
-        form = LoginForm(backend=backend, request=request)
+        # Pre-fill keep_logged_in if this is the preferred provider
+        initial_data = {}
+        if keep_logged_in_default:
+            initial_data['keep_logged_in'] = True
+        form = LoginForm(backend=backend, request=request, initial=initial_data)
+    
     ctx['form'] = form
     ctx['can_register'] = settings.EVENTYAY_REGISTRATION
     ctx['can_reset'] = settings.EVENTYAY_PASSWORD_RESET
     ctx['backends'] = backends
     ctx['backend'] = backend
-
-    gs = GlobalSettingsObject()
-    ctx['login_providers'] = gs.settings.get('login_providers', as_type=dict)
+    ctx['login_providers'] = login_providers
+    
+    # Add flag to check if any provider is preferred
+    ctx['any_preferred'] = any(
+        provider_settings.get('preferred', False) 
+        for provider_settings in login_providers.values()
+    )
+    
     return render(request, 'eventyay_common/auth/login.html', ctx)
 
 
@@ -594,3 +618,4 @@ def send_password_reset(email: str, has_redis: bool, request: HttpRequest):
     user.send_password_reset(request)
     logger.info('Sent email for password reset to "%s"', email)
     user.log_action('eventyay.eventyay_common.auth.user.forgot_password.mail_sent')
+

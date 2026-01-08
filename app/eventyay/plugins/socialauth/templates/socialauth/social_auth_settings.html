@@ -13,78 +13,130 @@
             {% include "pretixcontrol/event/component_link.html" %}
         </div>
     </nav>
+
     <form action="" method="post" class="form-horizontal form-plugins">
         {% csrf_token %}
+
         {% if "success" in request.GET %}
             <div class="alert alert-success">
                 {% trans "Your changes have been saved." %}
             </div>
         {% endif %}
+
         <div class="tabbed-form">
             <fieldset>
                 <legend>{% trans "Social login providers" %}</legend>
+
+                <p class="help-block">
+                    {% trans "Select one provider as the preferred login method. This provider will be shown first and emphasized in the login UI. 'Keep me logged in' will be pre-selected by default for the preferred provider." %}
+                </p>
+
                 <div class="table-responsive">
                     <table class="table">
                         {% for provider, settings in login_providers.items %}
                             <tr class="{% if settings.state %}success{% else %}default{% endif %}">
+                                <!-- Provider display -->
                                 <td>
-                                    {% with provider|capfirst as provider_capitalized %}
-                                        <strong>{% trans provider_capitalized %}</strong>
-                                        <p>{% blocktrans %}Login with {{ provider_capitalized }}{% endblocktrans %}</p>
-                                    {% endwith %}
+                                    {% if provider == "native" %}
+                                        <strong>{% trans "Email" %}</strong>
+                                        <p>{% trans "Login with Email" %}</p>
+                                    {% else %}
+                                        {% with provider|capfirst as provider_capitalized %}
+                                            <strong>{{ provider_capitalized }}</strong>
+                                            <p>
+                                                {% blocktrans %}
+                                                    Login with {{ provider_capitalized }}
+                                                {% endblocktrans %}
+                                            </p>
+                                        {% endwith %}
+                                    {% endif %}
                                 </td>
+                                
+                                <!-- Preferred provider radio button (only shown if enabled) -->
+                                <td class="text-center" width="15%">
+                                    {% if settings.state %}
+                                        <div class="form-group" style="margin: 0;">
+                                            <label>
+                                                <input type="radio" 
+                                                       name="preferred_provider" 
+                                                       value="{{ provider }}"
+                                                       {% if settings.preferred %}checked{% endif %}>
+                                                {% trans "Preferred" %}
+                                            </label>
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                
+                                <!-- Enable / Disable button -->
                                 <td class="text-right flip" width="20%">
                                     {% if settings.state %}
-                                        <button class="btn btn-default btn-block" name="{{ provider }}_login" value="disabled">
+                                        <button class="btn btn-default btn-block"
+                                                name="{{ provider }}_login"
+                                                value="disabled">
                                             {% trans "Disable" %}
                                         </button>
                                     {% else %}
-                                        <button class="btn btn-default btn-block" name="{{ provider }}_login" value="enabled">
+                                        <button class="btn btn-default btn-block"
+                                                name="{{ provider }}_login"
+                                                value="enabled">
                                             {% trans "Enable" %}
                                         </button>
                                     {% endif %}
                                 </td>
                             </tr>
-                            {% if settings.state %}
-                            <tr>
-                                <td colspan="2">
-                                    <div class="form-group">
-                                        <label class="col-sm-3 control-label">
-                                            {% if provider == "mediawiki" %}
-                                                {% trans "Client Application Key" %}
-                                            {% else %}
-                                                {% trans "Client ID" %}
-                                            {% endif %}
-                                        </label>
-                                        <div class="col-sm-9">
-                                            <input type="text" class="form-control" name="{{ provider }}_client_id" value="{{ settings.client_id }}">
+
+                            {% if settings.state and provider != "native" %}
+                                <tr>
+                                    <td colspan="3">
+                                        <div class="form-group">
+                                            <label class="col-sm-3 control-label">
+                                                {% if provider == "mediawiki" %}
+                                                    {% trans "Client Application Key" %}
+                                                {% else %}
+                                                    {% trans "Client ID" %}
+                                                {% endif %}
+                                            </label>
+                                            <div class="col-sm-9">
+                                                <input type="text"
+                                                       class="form-control"
+                                                       name="{{ provider }}_client_id"
+                                                       value="{{ settings.client_id }}">
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="col-sm-3 control-label">
-                                            {% if provider == "mediawiki" %}
-                                                {% trans "Client Application Secret" %}
-                                            {% else %}
-                                                {% trans "Secret" %}
-                                            {% endif %}
-                                        </label>
-                                        <div class="col-sm-9">
-                                            <input type="password" class="form-control" name="{{ provider }}_secret" value="{{ settings.secret }}">
+
+                                        <div class="form-group">
+                                            <label class="col-sm-3 control-label">
+                                                {% if provider == "mediawiki" %}
+                                                    {% trans "Client Application Secret" %}
+                                                {% else %}
+                                                    {% trans "Secret" %}
+                                                {% endif %}
+                                            </label>
+                                            <div class="col-sm-9">
+                                                <input type="password"
+                                                       class="form-control"
+                                                       name="{{ provider }}_secret"
+                                                       value="{{ settings.secret }}">
+                                            </div>
                                         </div>
-                                    </div>
-                                </td>
-                            </tr>
+                                    </td>
+                                </tr>
                             {% endif %}
                         {% endfor %}
                     </table>
                 </div>
             </fieldset>
+
             <fieldset>
                 {% include "socialauth/social_setup.html" %}
             </fieldset>
         </div>
+
         <div class="form-group submit-group">
-            <button type="submit" class="btn btn-primary btn-save" name="save_credentials" value="credentials">
+            <button type="submit"
+                    class="btn btn-primary btn-save"
+                    name="save_credentials"
+                    value="credentials">
                 {% trans "Save" %}
             </button>
         </div>
