@@ -31,13 +31,22 @@ class OAuthLoginView(View):
     def get(self, request: HttpRequest, provider: str) -> HttpResponse:
         self.set_oauth2_params(request)
         
-        # Store the 'next' URL in session for redirecting user back after login
+        # Save next URL to session for post-login redirect
         next_url = request.GET.get('next', '')
         if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts=None):
             request.session['socialauth_next_url'] = next_url
 
+        # Check provider preference and set keep_logged_in flag
         gs = GlobalSettingsObject()
-        client_id = gs.settings.get('login_providers', as_type=dict).get(provider, {}).get('client_id')
+        login_providers = gs.settings.get('login_providers', as_type=dict) or {}
+        provider_settings = login_providers.get(provider, {})
+        
+        if provider_settings.get('preferred', False):
+            request.session['socialauth_keep_logged_in'] = True
+        else:
+            request.session.pop('socialauth_keep_logged_in', None)
+
+        client_id = provider_settings.get('client_id')
         provider_instance = adapter.get_provider(request, provider, client_id=client_id)
 
         base_url = provider_instance.get_login_url(request)
@@ -49,8 +58,8 @@ class OAuthLoginView(View):
     @staticmethod
     def set_oauth2_params(request: HttpRequest) -> None:
         """
-        Handle Login with SSO button from other components
-        This function will set 'oauth2_params' in session for oauth2_callback
+        Extract and store OAuth2 params from 'next' URL for Talk module SSO integration.
+        Only relative URLs are accepted for security.
         """
         next_url = request.GET.get('next', '')
         if not next_url:
@@ -58,7 +67,7 @@ class OAuthLoginView(View):
 
         parsed = urlparse(next_url)
 
-        # Only allow relative URLs
+        # Block absolute URLs
         if parsed.netloc or parsed.scheme:
             return
 
@@ -72,34 +81,34 @@ class OAuthLoginView(View):
             logger.warning('Ignore invalid OAuth2 parameters: %s.', e)
 
 
+
 class OAuthReturnView(View):
     def get(self, request: HttpRequest) -> HttpResponse:
         try:
             user = self.get_or_create_user(request)
             
-            # Check for OAuth2 params first (Talk module integration)
+            keep_logged_in = request.session.pop('socialauth_keep_logged_in', False)
+            
+            # Handle Talk module OAuth2 flow if params exist
             oauth2_params = request.session.pop('oauth2_params', {})
             if oauth2_params:
                 try:
                     oauth2_params = OAuth2Params.model_validate(oauth2_params)
                     query_string = urlencode(oauth2_params.model_dump())
                     auth_url = reverse('eventyay_common:oauth2_provider.authorize')
-                    # OAuth2 flow takes precedence - redirect to authorization endpoint
-                    # Clean up socialauth_next_url to prevent it from being used later
+                    # Clear socialauth_next_url since OAuth2 flow takes over
                     request.session.pop('socialauth_next_url', None)
-                    response = process_login_and_set_cookie(request, user, False)
+                    response = process_login_and_set_cookie(request, user, keep_logged_in)
                     return redirect(f'{auth_url}?{query_string}')
                 except ValidationError as e:
                     logger.warning('Ignore invalid OAuth2 parameters: %s.', e)
             
-            # Retrieve and re-validate the stored 'next' URL from session
-            # Re-validation provides defense against session tampering
+            # Re-validate next URL from session to prevent tampering
             next_url = request.session.pop('socialauth_next_url', None)
             if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts=None):
-                # Store in session with a clear key for process_login to use
                 request.session['socialauth_next_url'] = next_url
             
-            response = process_login_and_set_cookie(request, user, False)
+            response = process_login_and_set_cookie(request, user, keep_logged_in)
             return response
         except AttributeError as e:
             messages.error(request, _('Error while authorizing: no email address available.'))
@@ -109,11 +118,11 @@ class OAuthReturnView(View):
     @staticmethod
     def get_or_create_user(request: HttpRequest) -> User:
         """
-        Get or create a user from social auth information.
+        Get or create user from social auth data. Updates Wikimedia username if changed.
         """
         social_account = request.user.socialaccount_set.filter(
             provider='mediawiki'
-        ).last()  # Fetch only the latest signed in Wikimedia account
+        ).last()
         wikimedia_username = ''
 
         if social_account:
@@ -131,8 +140,7 @@ class OAuthReturnView(View):
             },
         )
 
-        # Update wikimedia_username if the user exists but has no wikimedia_username value set
-        # (basically our existing users), or if the user has updated his username in his wikimedia account
+        # Sync Wikimedia username for existing users or if it changed
         if not created and (not user.wikimedia_username or user.wikimedia_username != wikimedia_username):
             user.wikimedia_username = wikimedia_username
             user.save()
@@ -191,17 +199,38 @@ class SocialLoginView(AdministratorPermissionRequiredMixin, TemplateView):
             if provider in login_providers:
                 login_providers[provider]['preferred'] = False
 
-        # Set the selected provider as preferred (if it's enabled)
+        # Set the selected provider as preferred ONLY if it's enabled
         if preferred_provider and preferred_provider in login_providers:
             if login_providers[preferred_provider].get('state', False):
                 login_providers[preferred_provider]['preferred'] = True
-
+            else:
+                # Log a warning if someone tries to set a disabled provider as preferred
+                logger.warning(
+                    'Attempted to set disabled provider "%s" as preferred. Ignoring.',
+                    preferred_provider
+                )
 
         for provider in LoginProviders.model_fields.keys():
             if setting_state == self.SettingState.CREDENTIALS:
                 self.update_credentials(request, provider, login_providers)
             else:
                 self.update_provider_state(request, provider, login_providers)
+
+        # Final validation: ensure at least one login method is enabled
+        any_enabled = any(
+            settings.get('state', False) 
+            for settings in login_providers.values()
+        )
+
+        if not any_enabled:
+            messages.warning(
+                request, 
+                _('At least one login method must be enabled. Native login has been enabled automatically.')
+            )
+            login_providers['native']['state'] = True
+            # If no other provider is preferred, make native preferred
+            if not any(settings.get('preferred', False) for settings in login_providers.values()):
+                login_providers['native']['preferred'] = True
 
         self.gs.settings.set('login_providers', login_providers)
         return redirect(self.get_success_url())
@@ -232,6 +261,14 @@ class SocialLoginView(AdministratorPermissionRequiredMixin, TemplateView):
             if not new_state and login_providers[provider].get('preferred', False):
                 login_providers[provider]['preferred'] = False
 
+                # If this was the only preferred provider and native is enabled,
+                # make native the preferred provider
+                any_other_preferred = any(
+                    p != provider and settings.get('preferred', False)
+                    for p, settings in login_providers.items()
+                )
+                if not any_other_preferred and login_providers.get('native', {}).get('state', False):
+                    login_providers['native']['preferred'] = True
+
     def get_success_url(self) -> str:
         return reverse('plugins:socialauth:admin.global.social.auth.settings')
-

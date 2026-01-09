@@ -11,21 +11,28 @@
     {% csrf_token %}
 
 {% if any_preferred %}
-    {# A provider is marked as preferred - show preferred layout #}
+    {# Preferred provider layout #}
     {% for provider, settings in login_providers.items %}
-        {% if settings.state and settings.preferred %}
+        {% if settings.preferred %}
             {% if provider == "native" %}
                 
-                {# Case 1: Native (Email) is preferred #}
+                {# Native email is preferred - show it as primary button #}
                 <div class="form-group buttons">
                     <button type="button" class="btn btn-primary btn-block btn-lg collapsed"
                             data-toggle="collapse" data-target="#login-form"
-                            aria-expanded="false" aria-controls="login-form">
+                            aria-expanded="false" aria-controls="login-form"
+                            id="native-preferred-toggle">
                         {% translate "Login with Email" %}
                     </button>
                 </div>
                 
-                {# Show other social login options below if any exist #}
+                {% if keep_logged_in_default %}
+                    <p class="text-center text-muted" style="margin: 10px 0;">
+                        <small><i class="fa fa-check-circle"></i> {% translate "Keep me logged in will be enabled by default" %}</small>
+                    </p>
+                {% endif %}
+                
+                {# Show social login buttons below email #}
                 {% if login_providers|length > 1 %}
                     <p class="text-center text-muted" style="margin: 20px 0 10px 0;">
                         <small>{% translate "or use the following" %}</small>
@@ -44,7 +51,7 @@
                     </div>
                 {% endif %}
                 
-                <div id="login-form" class="collapse" style="margin-top: 15px;">
+                <div id="login-form" class="collapse" style="margin-top: 15px;" data-native-preferred="true">
                     {% if backends|length > 1 %}
                         <ul class="nav nav-pills">
                             {% for b in backends %}
@@ -59,7 +66,27 @@
                         </ul>
                         <br>
                     {% endif %}
-                    {% bootstrap_form form %}
+                    
+                    {# Pre-check "keep logged in" when native is preferred #}
+                    {% if keep_logged_in_default %}
+                        {% for field in form %}
+                            {% if field.name == "keep_logged_in" %}
+                                <div class="form-group">
+                                    <div class="checkbox">
+                                        <label>
+                                            <input type="checkbox" name="keep_logged_in" id="id_keep_logged_in" checked>
+                                            {{ field.label }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% else %}
+                                {% bootstrap_field field %}
+                            {% endif %}
+                        {% endfor %}
+                    {% else %}
+                        {% bootstrap_form form %}
+                    {% endif %}
+                    
                     <div class="form-group buttons">
                         {% if backend.login_form_fields %}
                             <button type="submit" class="btn btn-primary btn-block">
@@ -88,27 +115,37 @@
                 
             {% else %}
                 
-                {# Case 2: A social provider is preferred #}
-                <div class="form-group buttons">
-                    <a href='{% url "plugins:socialauth:social.oauth.login" provider %}{% append_next request.GET.next %}' 
-                       class="btn btn-primary btn-block btn-lg">
-                        {% with provider|capfirst as provider_capitalized %}
-                            {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
-                        {% endwith %}
-                    </a>
-                </div>
+                {# Social provider is preferred - show it as primary button #}
+                {% if settings.state %}
+                    <div class="form-group buttons">
+                        <a href='{% url "plugins:socialauth:social.oauth.login" provider %}{% append_next request.GET.next %}' 
+                           class="btn btn-primary btn-block btn-lg">
+                            {% with provider|capfirst as provider_capitalized %}
+                                {% blocktranslate %}Login with {{ provider_capitalized }}{% endblocktranslate %}
+                            {% endwith %}
+                        </a>
+                    </div>
+                    
+                    {% if keep_logged_in_default %}
+                        <p class="text-center text-muted" style="margin: 10px 0;">
+                            <small><i class="fa fa-check-circle"></i> {% translate "Keep me logged in will be enabled by default" %}</small>
+                        </p>
+                    {% endif %}
+                    
+                    <p class="text-center text-muted" style="margin: 20px 0 10px 0;">
+                        <small>{% translate "or use the following" %}</small>
+                    </p>
+                {% endif %}
                 
-                <p class="text-center text-muted" style="margin: 20px 0 10px 0;">
-                    <small>{% translate "or use the following" %}</small>
-                </p>
-                
+                {# Email login is always available as fallback #}
                 <div class="form-group buttons">
-                    <button type="button" class="btn btn-default btn-block collapsed"
+                    <button type="button" class="btn {% if not settings.state %}btn-primary btn-lg{% else %}btn-default{% endif %} btn-block collapsed"
                             data-toggle="collapse" data-target="#login-form"
                             aria-expanded="false" aria-controls="login-form">
                         {% translate "Login with Email" %}
                     </button>
                     
+                    {# Show other enabled social providers #}
                     {% for other_provider, other_settings in login_providers.items %}
                         {% if other_settings.state and other_provider != "native" and other_provider != provider %}
                             <a href='{% url "plugins:socialauth:social.oauth.login" other_provider %}{% append_next request.GET.next %}' 
@@ -169,15 +206,15 @@
     
 {% else %}
     
-    {# Case 3: No preferred provider - all options shown equally #}
+    {# Default layout - no preferred provider set #}
     <div class="form-group buttons">
-        {% if login_providers.native.state %}
-            <button type="button" id="toggle-login" class="btn btn-primary btn-block collapsed"
-                    data-toggle="collapse" data-target="#login-form"
-                    aria-expanded="false" aria-controls="login-form">
-                {% translate "Login with Email" %}
-            </button>
-        {% endif %}
+        <button type="button" id="toggle-login" class="btn btn-primary btn-block collapsed"
+                data-toggle="collapse" data-target="#login-form"
+                aria-expanded="false" aria-controls="login-form">
+            {% translate "Login with Email" %}
+        </button>
+        
+        {# Show all enabled social providers #}
         {% for other_provider, other_settings in login_providers.items %}
             {% if other_settings.state and other_provider != "native" %}
                 <a href='{% url "plugins:socialauth:social.oauth.login" other_provider %}{% append_next request.GET.next %}' 
@@ -238,16 +275,27 @@
 </form>
 
 <script>
-// Ensure the login form is collapsed on page load
+// Initialize collapse state and checkbox on page load
 document.addEventListener('DOMContentLoaded', function() {
     var loginForm = document.getElementById('login-form');
-    if (loginForm) {
-        // Remove any 'in' class that might be added by other scripts
+    if (!loginForm) return;
+    
+    var nativeIsPreferred = loginForm.hasAttribute('data-native-preferred');
+    
+    // Hide collapsed forms by default
+    if (!nativeIsPreferred) {
         loginForm.classList.remove('in');
-        // Ensure it's hidden
         loginForm.style.height = '0px';
         loginForm.style.overflow = 'hidden';
         loginForm.setAttribute('aria-expanded', 'false');
+    }
+    
+    // Pre-check the "keep logged in" checkbox when native is preferred
+    if (nativeIsPreferred) {
+        var checkbox = document.getElementById('id_keep_logged_in');
+        if (checkbox && !checkbox.checked) {
+            checkbox.checked = true;
+        }
     }
 });
 </script>

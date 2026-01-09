@@ -140,18 +140,18 @@ def login(request):
             return redirect(next_url)
         return redirect(reverse('eventyay_common:dashboard'))
     
-    # Determine if we should pre-select "Keep me logged in"
+    # Get login providers settings
     gs = GlobalSettingsObject()
     login_providers = gs.settings.get('login_providers', as_type=dict) or {}
     
-    # Check if current backend is the preferred provider
-    keep_logged_in_default = False
-    for provider_key, provider_settings in login_providers.items():
-        if provider_settings.get('preferred', False):
-            # If native (email) is preferred and we're using native backend
-            if provider_key == 'native' and backend.identifier == 'native':
-                keep_logged_in_default = True
-                break
+    # Check if any provider is marked as preferred
+    any_preferred = any(
+        provider_settings.get('preferred', False) 
+        for provider_settings in login_providers.values()
+    )
+    
+    # Only pre-select "Keep me logged in" if there's a preferred provider
+    keep_logged_in_default = any_preferred
     
     if request.method == 'POST':
         form = LoginForm(backend=backend, data=request.POST, request=request)
@@ -160,10 +160,11 @@ def login(request):
                 request, form.user_cache, form.cleaned_data.get('keep_logged_in', False)
             )
     else:
-        # Pre-fill keep_logged_in if this is the preferred provider
+        # Pre-fill keep_logged_in if there's a preferred provider
         initial_data = {}
         if keep_logged_in_default:
             initial_data['keep_logged_in'] = True
+        
         form = LoginForm(backend=backend, request=request, initial=initial_data)
     
     ctx['form'] = form
@@ -172,12 +173,8 @@ def login(request):
     ctx['backends'] = backends
     ctx['backend'] = backend
     ctx['login_providers'] = login_providers
-    
-    # Add flag to check if any provider is preferred
-    ctx['any_preferred'] = any(
-        provider_settings.get('preferred', False) 
-        for provider_settings in login_providers.values()
-    )
+    ctx['keep_logged_in_default'] = keep_logged_in_default
+    ctx['any_preferred'] = any_preferred
     
     return render(request, 'eventyay_common/auth/login.html', ctx)
 
